@@ -21,8 +21,6 @@ import (
 
 var Version = "dev"
 
-const topN = 5
-
 type LocatedValue struct {
 	Value int
 	File  string
@@ -92,17 +90,11 @@ func main() {
 		}
 	}
 
-	printStats("Line lengths (chars)", stats.LineLengths)
-	printStats("File lengths (lines)", stats.FileLengths)
-	printStats("Function lengths (lines)", stats.FuncLengths)
-	printStats("Function argument counts", stats.FuncArgCounts)
-	printStats("Struct field counts", stats.StructFieldCounts)
-
-	writeOutliers("outliers_line_lengths.txt", stats.LineLengthLocs)
-	writeOutliers("outliers_file_lengths.txt", stats.FileLengthLocs)
-	writeOutliers("outliers_function_lengths.txt", stats.FuncLengthLocs)
-	writeOutliers("outliers_function_args.txt", stats.FuncArgCountLocs)
-	writeOutliers("outliers_struct_fields.txt", stats.StructFieldCountLocs)
+	printStats("Line lengths (chars)", stats.LineLengths, stats.LineLengthLocs)
+	printStats("File lengths (lines)", stats.FileLengths, stats.FileLengthLocs)
+	printStats("Function lengths (lines)", stats.FuncLengths, stats.FuncLengthLocs)
+	printStats("Function argument counts", stats.FuncArgCounts, stats.FuncArgCountLocs)
+	printStats("Struct field counts", stats.StructFieldCounts, stats.StructFieldCountLocs)
 }
 
 func processFile(fset *token.FileSet, path string, stats *Stats) {
@@ -194,7 +186,7 @@ func processFile(fset *token.FileSet, path string, stats *Stats) {
 	})
 }
 
-func printStats(name string, values []int) {
+func printStats(name string, values []int, locations []LocatedValue) {
 	if len(values) == 0 {
 		return
 	}
@@ -212,38 +204,20 @@ func printStats(name string, values []int) {
 		percentile(values, 0.99),
 		values[len(values)-1],
 	)
-}
-
-func percentile(sorted []int, p float64) int {
-	idx := int(float64(len(sorted)-1) * p)
-	return sorted[idx]
-}
-
-func writeOutliers(filename string, values []LocatedValue) {
-	if len(values) == 0 {
+	if len(locations) == 0 {
 		return
 	}
-	sort.Slice(values, func(i, j int) bool {
-		return values[i].Value > values[j].Value
+	sort.Slice(locations, func(i, j int) bool {
+		return locations[i].Value < locations[j].Value
 	})
-
-	f, err := os.CreateTemp("", "*-"+filename)
-	if err != nil {
-		log.Println(err)
+	for _, v := range locations[percentileIndex(len(locations), 0.99):] {
+		fmt.Printf("%d\t%s:%d\n", v.Value, v.File, v.Line)
 	}
-	defer func() { _ = f.Close() }()
+}
 
-	log.Println("Emitting stats to:", f.Name())
-
-	w := bufio.NewWriter(f)
-	defer func() { _ = w.Flush() }()
-
-	limit := topN
-	if len(values) < limit {
-		limit = len(values)
-	}
-	for i := 0; i < limit; i++ {
-		v := values[i]
-		_, _ = fmt.Fprintf(w, "%d\t%s:%d\n", v.Value, v.File, v.Line)
-	}
+func percentileIndex(length int, percentile float64) int {
+	return int(float64(length-1) * percentile)
+}
+func percentile(sorted []int, p float64) int {
+	return sorted[percentileIndex(len(sorted), p)]
 }
